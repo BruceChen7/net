@@ -469,6 +469,7 @@ func (s *Server) ServeConn(c net.Conn, opts *ServeConnOpts) {
 	if hook := testHookGetServerConn; hook != nil {
 		hook(sc)
 	}
+    // 开始运行http2 Server
 	sc.serve()
 }
 
@@ -489,6 +490,7 @@ func (sc *serverConn) rejectConn(err ErrCode, debug string) {
 	sc.conn.Close()
 }
 
+// http2 server
 type serverConn struct {
 	// Immutable:
 	srv              *Server

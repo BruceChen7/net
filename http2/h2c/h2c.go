@@ -35,6 +35,7 @@ var (
 func init() {
 	e := os.Getenv("GODEBUG")
 	if strings.Contains(e, "http2debug=1") || strings.Contains(e, "http2debug=2") {
+        // 打印日志
 		http2VerboseLogs = true
 	}
 }
@@ -91,10 +92,12 @@ func (s h2cHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if conn, err := h2cUpgrade(w, r); err == nil {
 		defer conn.Close()
 
+        // 开始真正的处连接
 		s.s.ServeConn(conn, &http2.ServeConnOpts{Handler: s.Handler})
 		return
 	}
 
+    // 交给http1.1协议来处理
 	s.Handler.ServeHTTP(w, r)
 	return
 }
@@ -151,6 +154,7 @@ func drainClientPreface(r io.Reader) error {
 	if err != nil {
 		return err
 	}
+    // 获取preface from client
 	if n != prefaceLen || buf.String() != http2.ClientPreface {
 		return fmt.Errorf("Client never sent: %s", http2.ClientPreface)
 	}
@@ -158,7 +162,9 @@ func drainClientPreface(r io.Reader) error {
 }
 
 // h2cUpgrade establishes a h2c connection using the HTTP/1 upgrade (Section 3.2).
+// 使用upgrade来建立h2c的协议请求
 func h2cUpgrade(w http.ResponseWriter, r *http.Request) (net.Conn, error) {
+    // 查看头中是否包含Upgrade和HTTP2-Settings字段
 	if !isH2CUpgrade(r.Header) {
 		return nil, errors.New("non-conforming h2c headers")
 	}
@@ -173,11 +179,16 @@ func h2cUpgrade(w http.ResponseWriter, r *http.Request) (net.Conn, error) {
 	if !ok {
 		return nil, errors.New("hijack not supported.")
 	}
+    // hook住之前http1.1的connection,
+    // readwriter
+	// It becomes the caller's responsibility to manage
+	// and close the connection.
 	conn, rw, err := hijacker.Hijack()
 	if err != nil {
 		return nil, fmt.Errorf("hijack failed: %v", err)
 	}
 
+    // 101状态转移
 	rw.Write([]byte("HTTP/1.1 101 Switching Protocols\r\n" +
 		"Connection: Upgrade\r\n" +
 		"Upgrade: h2c\r\n\r\n"))
@@ -201,6 +212,7 @@ func h2cUpgrade(w http.ResponseWriter, r *http.Request) (net.Conn, error) {
 // version in byte form.
 func convertH1ReqToH2(r *http.Request) (*bytes.Buffer, []http2.Setting, error) {
 	h2Bytes := bytes.NewBuffer([]byte((http2.ClientPreface)))
+    // 创建一个frame
 	framer := http2.NewFramer(h2Bytes, nil)
 	settings, err := getH2Settings(r.Header)
 	if err != nil {
@@ -374,6 +386,7 @@ func isH2CUpgrade(h http.Header) bool {
 // getH2Settings returns the []http2.Setting that are encoded in the
 // HTTP2-Settings header.
 func getH2Settings(h http.Header) ([]http2.Setting, error) {
+    // 获取对应key的值
 	vals, ok := h[textproto.CanonicalMIMEHeaderKey("HTTP2-Settings")]
 	if !ok {
 		return nil, errors.New("missing HTTP2-Settings header")
@@ -381,6 +394,7 @@ func getH2Settings(h http.Header) ([]http2.Setting, error) {
 	if len(vals) != 1 {
 		return nil, fmt.Errorf("expected 1 HTTP2-Settings. Got: %v", vals)
 	}
+    // 必须只能有一个值，就是token的值
 	settings, err := decodeSettings(vals[0])
 	if err != nil {
 		return nil, fmt.Errorf("Invalid HTTP2-Settings: %q", vals[0])
@@ -391,6 +405,7 @@ func getH2Settings(h http.Header) ([]http2.Setting, error) {
 // decodeSettings decodes the base64url header value of the HTTP2-Settings
 // header. RFC 7540 Section 3.2.1.
 func decodeSettings(headerVal string) ([]http2.Setting, error) {
+    // base64反序列化后，忽略=
 	b, err := base64.RawURLEncoding.DecodeString(headerVal)
 	if err != nil {
 		return nil, err

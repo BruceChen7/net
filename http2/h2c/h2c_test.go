@@ -19,6 +19,7 @@ func TestSettingsAckSwallowWriter(t *testing.T) {
 	var buf bytes.Buffer
 	swallower := newSettingsAckSwallowWriter(bufio.NewWriter(&buf))
 	fw := http2.NewFramer(swallower, nil)
+    // 设最多为2帧
 	fw.WriteSettings(http2.Setting{http2.SettingMaxFrameSize, 2})
 	fw.WriteSettingsAck()
 	fw.WriteData(1, true, []byte{})
@@ -26,10 +27,12 @@ func TestSettingsAckSwallowWriter(t *testing.T) {
 
 	fr := http2.NewFramer(nil, bufio.NewReader(&buf))
 
+    // 获取一帧
 	f, err := fr.ReadFrame()
 	if err != nil {
 		t.Fatal(err)
 	}
+    // 类型不对
 	if f.Header().Type != http2.FrameSettings {
 		t.Fatalf("Expected first frame to be SETTINGS. Got: %v", f.Header().Type)
 	}
@@ -38,6 +41,7 @@ func TestSettingsAckSwallowWriter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+    // data fream
 	if f.Header().Type != http2.FrameData {
 		t.Fatalf("Expected first frame to be DATA. Got: %v", f.Header().Type)
 	}
