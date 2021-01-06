@@ -234,12 +234,15 @@ func ReadFrameHeader(r io.Reader) (FrameHeader, error) {
 }
 
 func readFrameHeader(buf []byte, r io.Reader) (FrameHeader, error) {
+    // 执行frame长度
 	_, err := io.ReadFull(r, buf[:frameHeaderLen])
 	if err != nil {
 		return FrameHeader{}, err
 	}
 	return FrameHeader{
+        // frame 长度
 		Length:   (uint32(buf[0])<<16 | uint32(buf[1])<<8 | uint32(buf[2])),
+        // frame 类型
 		Type:     FrameType(buf[3]),
 		Flags:    Flags(buf[4]),
 		StreamID: binary.BigEndian.Uint32(buf[5:]) & (1<<31 - 1),
@@ -272,6 +275,7 @@ type Framer struct {
 	lastHeaderStream uint32
 
 	maxReadSize uint32
+    // frame header
 	headerBuf   [frameHeaderLen]byte
 
 	// TODO: let getReadBuf be configurable, and use a less memory-pinning
@@ -489,17 +493,23 @@ func (fr *Framer) ReadFrame() (Frame, error) {
 	if fr.lastFrame != nil {
 		fr.lastFrame.invalidate()
 	}
+    // 获取frame header
 	fh, err := readFrameHeader(fr.headerBuf[:], fr.r)
 	if err != nil {
 		return nil, err
 	}
+    // fheader中的长度太大
 	if fh.Length > fr.maxReadSize {
 		return nil, ErrFrameTooLarge
 	}
+    // 获取payload body
 	payload := fr.getReadBuf(fh.Length)
+    // 获取payload
 	if _, err := io.ReadFull(fr.r, payload); err != nil {
 		return nil, err
 	}
+
+    // 根据frame解析器获取frame
 	f, err := typeFrameParser(fh.Type)(fr.frameCache, fh, payload)
 	if err != nil {
 		if ce, ok := err.(connError); ok {
@@ -510,6 +520,7 @@ func (fr *Framer) ReadFrame() (Frame, error) {
 	if err := fr.checkFrameOrder(f); err != nil {
 		return nil, err
 	}
+    // 打印日志
 	if fr.logReads {
 		fr.debugReadLoggerf("http2: Framer %p: read %v", fr, summarizeFrame(f))
 	}
@@ -532,6 +543,7 @@ func (fr *Framer) connError(code ErrCode, reason string) error {
 // next from ReadFrame. Mostly it checks whether HEADERS and
 // CONTINUATION frames are contiguous.
 func (fr *Framer) checkFrameOrder(f Frame) error {
+    // 获取最后一个frame
 	last := fr.lastFrame
 	fr.lastFrame = f
 	if fr.AllowIllegalReads {
@@ -589,6 +601,7 @@ func (f *DataFrame) Data() []byte {
 }
 
 func parseDataFrame(fc *frameCache, fh FrameHeader, payload []byte) (Frame, error) {
+    // 如果没有stream id
 	if fh.StreamID == 0 {
 		// DATA frames MUST be associated with a stream. If a
 		// DATA frame is received whose stream identifier
@@ -597,6 +610,7 @@ func parseDataFrame(fc *frameCache, fh FrameHeader, payload []byte) (Frame, erro
 		// PROTOCOL_ERROR.
 		return nil, connError{ErrCodeProtocol, "DATA frame with stream ID 0"}
 	}
+    // 获取data frame
 	f := fc.getDataFrame()
 	f.FrameHeader = fh
 
@@ -615,6 +629,7 @@ func parseDataFrame(fc *frameCache, fh FrameHeader, payload []byte) (Frame, erro
 		// Filed: https://github.com/http2/http2-spec/issues/610
 		return nil, connError{ErrCodeProtocol, "pad size larger than data payload"}
 	}
+    // 填充数据
 	f.data = payload[:len(payload)-int(padSize)]
 	return f, nil
 }

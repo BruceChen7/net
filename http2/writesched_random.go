@@ -38,6 +38,7 @@ func (ws *randomWriteScheduler) CloseStream(streamID uint32) {
 		return
 	}
 	delete(ws.sq, streamID)
+    // 放回到池子中
 	ws.queuePool.put(q)
 }
 

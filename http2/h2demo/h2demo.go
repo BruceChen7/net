@@ -261,6 +261,7 @@ func registerHandlers() {
 			homeOldHTTP(w, r)
 			return
 		}
+        // 注册HTTP对应的请求
 		mux2.ServeHTTP(w, r)
 	})
 	mux2.HandleFunc("/", home)

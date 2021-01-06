@@ -92,7 +92,7 @@ func (s h2cHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if conn, err := h2cUpgrade(w, r); err == nil {
 		defer conn.Close()
 
-        // 开始真正的处连接
+        // 开始真正的处理HTT2P请求
 		s.s.ServeConn(conn, &http2.ServeConnOpts{Handler: s.Handler})
 		return
 	}

@@ -376,6 +376,7 @@ func (s *Server) ServeConn(c net.Conn, opts *ServeConnOpts) {
 		remoteAddrStr:               c.RemoteAddr().String(),
 		bw:                          newBufferedWriter(c),
 		handler:                     opts.handler(),
+        // 该连接对应的stream统计
 		streams:                     make(map[uint32]*stream),
 		readFrameCh:                 make(chan readFrameResult),
 		wantWriteFrameCh:            make(chan FrameWriteRequest, 8),
@@ -392,7 +393,7 @@ func (s *Server) ServeConn(c net.Conn, opts *ServeConnOpts) {
 		pushEnabled:                 true,
 	}
 
-    // 活跃server初始化
+    // 活跃connection统计
 	s.state.registerConn(sc)
 	defer s.state.unregisterConn(sc)
 
@@ -515,6 +516,7 @@ type serverConn struct {
 	baseCtx          context.Context
 	framer           *Framer
 	doneServing      chan struct{}          // closed when serverConn.serve ends
+    // unbuffered channel
 	readFrameCh      chan readFrameResult   // written by serverConn.readFrames
 	wantWriteFrameCh chan FrameWriteRequest // from handlers -> serve
 	wroteFrameCh     chan frameWriteResult  // from writeFrameAsync -> serve, tickles more frame writes
@@ -760,10 +762,11 @@ func (sc *serverConn) readFrames() {
 	gate := make(gate)
 	gateDone := gate.Done
 	for {
+        // 执行IO操作，并解析成一帧
 		f, err := sc.framer.ReadFrame()
 		select {
 		case sc.readFrameCh <- readFrameResult{f, err, gateDone}:
-		case <-sc.doneServing:
+		case <-sc.doneServing:  // connection is finished
 			return
 		}
 		select {
@@ -853,7 +856,7 @@ func (sc *serverConn) serve() {
 	// Each connection starts with intialWindowSize inflow tokens.
 	// If a higher value is configured, we add more tokens.
 	if diff := sc.srv.initialConnRecvWindowSize() - initialWindowSize; diff > 0 {
-        // 更新窗口
+        // 更新窗口大小
 		sc.sendWindowUpdate(nil, int(diff))
 	}
 
@@ -884,6 +887,7 @@ func (sc *serverConn) serve() {
 
 	loopNum := 0
 	for {
+        // 是一个死循环
 		loopNum++
 		select {
         // 各个从写channel中读到了数据
@@ -899,6 +903,7 @@ func (sc *serverConn) serve() {
             // 写完了上个一个frame, 处理写完后的逻辑
 			sc.wroteFrame(res)
 		case res := <-sc.readFrameCh:
+            // 获取从客户端读取的一帧的结果
 			if !sc.processFrameFromReader(res) {
 				return
 			}
@@ -1205,6 +1210,7 @@ func (sc *serverConn) startFrameWrite(wr FrameWriteRequest) {
 	sc.needsFrameFlush = true
     // 如果buffer中有有多余
 	if wr.write.staysWithinBuffer(sc.bw.Available()) {
+        // 不需要真正的发送
 		sc.writingFrameAsync = false
         // 执行编码和序列化
 		err := wr.write.writeFrame(sc)
@@ -1212,7 +1218,7 @@ func (sc *serverConn) startFrameWrite(wr FrameWriteRequest) {
 		sc.wroteFrame(frameWriteResult{wr: wr, err: err})
 	} else {
 		sc.writingFrameAsync = true
-        // 写完了，再通知server gorotinue
+        // 写完了，再通知server gorotinue，下次写
 		go sc.writeFrameAsync(wr)
 	}
 }
@@ -1234,14 +1240,14 @@ func (sc *serverConn) wroteFrame(res frameWriteResult) {
 
 	wr := res.wr
 
-    // 写完了流
+    // 写完了该stream
 	if writeEndsStream(wr.write) {
 		st := wr.stream
 		if st == nil {
 			panic("internal error: expecting non-nil stream")
 		}
 		switch st.state {
-        // 之前留是打开的
+        // 之前stream是打开的
 		case stateOpen:
 			// Here we would go to stateHalfClosedLocal in
 			// theory, but since our handler is done and
@@ -1260,7 +1266,7 @@ func (sc *serverConn) wroteFrame(res frameWriteResult) {
 			// RST_STREAM with an error code of NO_ERROR after sending
 			// a complete response.
 			sc.resetStream(streamError(st.id, ErrCodeNo))
-		case stateHalfClosedRemote:
+		case stateHalfClosedRemote:  // 如果对端是关闭的，
             // 直接关闭流
 			sc.closeStream(st, errHandlerComplete)
 		}
@@ -1278,6 +1284,7 @@ func (sc *serverConn) wroteFrame(res frameWriteResult) {
 	}
 
 	// Reply (if requested) to unblock the ServeHTTP goroutine.
+    // 回应到应用层
 	wr.replyToWriter(res.err)
 
 	sc.scheduleFrameWrite()
@@ -1294,12 +1301,16 @@ func (sc *serverConn) wroteFrame(res frameWriteResult) {
 // If a frame isn't being written and there's nothing else to send, we
 // flush the write buffer.
 func (sc *serverConn) scheduleFrameWrite() {
+    // 一定是在server goroutine
 	sc.serveG.check()
 	if sc.writingFrame || sc.inFrameScheduleLoop {
 		return
 	}
+    // 在调度循环中
 	sc.inFrameScheduleLoop = true
+    // 如果处于同步模式，就是没有真正进行网络IO
 	for !sc.writingFrameAsync {
+        // 对于需要发送GOAway的frame
 		if sc.needToSendGoAway {
 			sc.needToSendGoAway = false
 			sc.startFrameWrite(FrameWriteRequest{
@@ -1310,6 +1321,7 @@ func (sc *serverConn) scheduleFrameWrite() {
 			})
 			continue
 		}
+        // 设置setting frame 的ack
 		if sc.needToSendSettingsAck {
 			sc.needToSendSettingsAck = false
 			sc.startFrameWrite(FrameWriteRequest{write: writeSettingsAck{}})
@@ -1325,6 +1337,7 @@ func (sc *serverConn) scheduleFrameWrite() {
 				continue
 			}
 		}
+        // 需要进行IO操作
 		if sc.needsFrameFlush {
 			sc.startFrameWrite(FrameWriteRequest{write: flushFrameWriter{}})
 			sc.needsFrameFlush = false // after startFrameWrite, since it sets this true
@@ -1398,6 +1411,7 @@ func (sc *serverConn) processFrameFromReader(res readFrameResult) bool {
 	sc.serveG.check()
 	err := res.err
 	if err != nil {
+        // freame太大
 		if err == ErrFrameTooLarge {
 			sc.goAway(ErrCodeFrameSize)
 			return true // goAway will close the loop
@@ -1415,10 +1429,13 @@ func (sc *serverConn) processFrameFromReader(res readFrameResult) bool {
 			return false
 		}
 	} else {
+        // 获取一帧
 		f := res.f
 		if VerboseLogs {
+            // 获取一帧
 			sc.vlogf("http2: server read frame %v", summarizeFrame(f))
 		}
+        // 处理一帧
 		err = sc.processFrame(f)
 		if err == nil {
 			return true
@@ -1427,6 +1444,7 @@ func (sc *serverConn) processFrameFromReader(res readFrameResult) bool {
 
 	switch ev := err.(type) {
 	case StreamError:
+        // 重置stream
 		sc.resetStream(ev)
 		return true
 	case goAwayFlowError:
@@ -1455,19 +1473,21 @@ func (sc *serverConn) processFrame(f Frame) error {
 		if _, ok := f.(*SettingsFrame); !ok {
 			return ConnectionError(ErrCodeProtocol)
 		}
+        // 第一帧必须是setting帧
 		sc.sawFirstSettings = true
 	}
 
 	switch f := f.(type) {
 	case *SettingsFrame:
+        /// 处理setting帧
 		return sc.processSettings(f)
 	case *MetaHeadersFrame:
 		return sc.processHeaders(f)
 	case *WindowUpdateFrame:
 		return sc.processWindowUpdate(f)
-	case *PingFrame:
+	case *PingFrame:  // ping frame
 		return sc.processPing(f)
-	case *DataFrame:
+	case *DataFrame:  // data frame
 		return sc.processData(f)
 	case *RSTStreamFrame:
 		return sc.processResetStream(f)
@@ -1508,6 +1528,7 @@ func (sc *serverConn) processPing(f *PingFrame) error {
 	return nil
 }
 
+// 处理客户端的windows update帧
 func (sc *serverConn) processWindowUpdate(f *WindowUpdateFrame) error {
 	sc.serveG.check()
 	switch {
@@ -1532,10 +1553,13 @@ func (sc *serverConn) processWindowUpdate(f *WindowUpdateFrame) error {
 			return streamError(f.StreamID, ErrCodeFlowControl)
 		}
 	default: // connection-level flow control
+        // 对方能够接受的流量增大
 		if !sc.flow.add(int32(f.Increment)) {
+            // 溢出了
 			return goAwayFlowError{}
 		}
 	}
+    // 让server conn gorotine来发送
 	sc.scheduleFrameWrite()
 	return nil
 }
@@ -1560,6 +1584,7 @@ func (sc *serverConn) processResetStream(f *RSTStreamFrame) error {
 }
 
 func (sc *serverConn) closeStream(st *stream, err error) {
+    // 都是server goroutine上调用
 	sc.serveG.check()
 	if st.state == stateIdle || st.state == stateClosed {
 		panic(fmt.Sprintf("invariant; can't close stream in state %v", st.state))
@@ -1573,13 +1598,17 @@ func (sc *serverConn) closeStream(st *stream, err error) {
 	} else {
 		sc.curClientStreams--
 	}
+    // 将该id对应的流从strems中删除
 	delete(sc.streams, st.id)
+    // 如果该连接上所有的流都为0了
 	if len(sc.streams) == 0 {
+        /// 设置连接状态为idle
 		sc.setConnState(http.StateIdle)
 		if sc.srv.IdleTimeout != 0 {
 			sc.idleTimer.Reset(sc.srv.IdleTimeout)
 		}
 		if h1ServerKeepAlivesDisabled(sc.hs) {
+            // 直接关闭服务器链接
 			sc.startGracefulShutdownInternal()
 		}
 	}
@@ -1597,6 +1626,7 @@ func (sc *serverConn) closeStream(st *stream, err error) {
 // setting frame处理
 func (sc *serverConn) processSettings(f *SettingsFrame) error {
 	sc.serveG.check()
+    // 是客户端对server的ack
 	if f.IsAck() {
 		sc.unackedSettings--
 		if sc.unackedSettings < 0 {
@@ -1607,6 +1637,7 @@ func (sc *serverConn) processSettings(f *SettingsFrame) error {
 		}
 		return nil
 	}
+    // 数量不对
 	if f.NumSettings() > 100 || f.HasDuplicates() {
 		// This isn't actually in the spec, but hang up on
 		// suspiciously large settings frames or those with
@@ -1618,6 +1649,7 @@ func (sc *serverConn) processSettings(f *SettingsFrame) error {
 	}
 	// TODO: judging by RFC 7540, Section 6.5.3 each SETTINGS frame should be
 	// acknowledged individually, even if multiple are received before the ACK.
+    // 需要应达setting的ack
 	sc.needToSendSettingsAck = true
 	sc.scheduleFrameWrite()
 	return nil
