@@ -68,6 +68,7 @@ const (
 
 	initialWindowSize = 65535 // 6.9.2 Initial Flow Control Window Size
 
+    // 设置最多能接受的frame size
 	defaultMaxReadFrameSize = 1 << 20
 )
 

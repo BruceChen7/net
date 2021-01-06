@@ -25,6 +25,7 @@ func newGoroutineLock() goroutineLock {
 	if !DebugGoroutines {
 		return 0
 	}
+    // 获取指定的goroutine_id
 	return goroutineLock(curGoroutineID())
 }
 
@@ -32,6 +33,7 @@ func (g goroutineLock) check() {
 	if !DebugGoroutines {
 		return
 	}
+    // 获取当前goroutine id，是否在指定的goroutine中运行
 	if curGoroutineID() != uint64(g) {
 		panic("running on the wrong goroutine")
 	}
@@ -50,6 +52,7 @@ var goroutineSpace = []byte("goroutine ")
 
 func curGoroutineID() uint64 {
 	bp := littleBuf.Get().(*[]byte)
+    // 最后放回去
 	defer littleBuf.Put(bp)
 	b := *bp
 	b = b[:runtime.Stack(b, false)]

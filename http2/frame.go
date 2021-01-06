@@ -809,6 +809,7 @@ func (f *Framer) WriteSettings(settings ...Setting) error {
 		f.writeUint16(uint16(s.ID))
 		f.writeUint32(s.Val)
 	}
+    // 二进制帧写
 	return f.endWrite()
 }
 

@@ -149,12 +149,14 @@ func initH2CWithPriorKnowledge(w http.ResponseWriter) (net.Conn, error) {
 // the supplied reader.
 func drainClientPreface(r io.Reader) error {
 	var buf bytes.Buffer
+    // 就是接受接受客户端的握手请求
 	prefaceLen := int64(len(http2.ClientPreface))
 	n, err := io.CopyN(&buf, r, prefaceLen)
 	if err != nil {
 		return err
 	}
     // 获取preface from client
+    // 如果不等，直接报错
 	if n != prefaceLen || buf.String() != http2.ClientPreface {
 		return fmt.Errorf("Client never sent: %s", http2.ClientPreface)
 	}
@@ -164,7 +166,7 @@ func drainClientPreface(r io.Reader) error {
 // h2cUpgrade establishes a h2c connection using the HTTP/1 upgrade (Section 3.2).
 // 使用upgrade来建立h2c的协议请求
 func h2cUpgrade(w http.ResponseWriter, r *http.Request) (net.Conn, error) {
-    // 查看头中是否包含Upgrade和HTTP2-Settings字段
+    // 查看请求头中是否包含Upgrade和HTTP2-Settings字段
 	if !isH2CUpgrade(r.Header) {
 		return nil, errors.New("non-conforming h2c headers")
 	}
@@ -175,6 +177,7 @@ func h2cUpgrade(w http.ResponseWriter, r *http.Request) (net.Conn, error) {
 		return nil, err
 	}
 
+    // 用来去接管http1的响应逻辑.
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
 		return nil, errors.New("hijack not supported.")
@@ -188,7 +191,7 @@ func h2cUpgrade(w http.ResponseWriter, r *http.Request) (net.Conn, error) {
 		return nil, fmt.Errorf("hijack failed: %v", err)
 	}
 
-    // 101状态转移
+    // 101状态转移，直接回
 	rw.Write([]byte("HTTP/1.1 101 Switching Protocols\r\n" +
 		"Connection: Upgrade\r\n" +
 		"Upgrade: h2c\r\n\r\n"))
@@ -200,6 +203,7 @@ func h2cUpgrade(w http.ResponseWriter, r *http.Request) (net.Conn, error) {
 		return nil, err
 	}
 
+    // 返回读写连接
 	c := &rwConn{
 		Conn:      conn,
 		Reader:    io.MultiReader(initBytes, rw),

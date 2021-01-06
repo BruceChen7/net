@@ -17,6 +17,7 @@ import (
 
 // writeFramer is implemented by any type that is used to write frames.
 type writeFramer interface {
+    // 用来将内容序列话成http2的二进制格式
 	writeFrame(writeContext) error
 
 	// staysWithinBuffer reports whether this writer promises that
@@ -72,6 +73,7 @@ func (flushFrameWriter) staysWithinBuffer(max int) bool { return false }
 
 type writeSettings []Setting
 
+// 实现了writeFramer接口
 func (s writeSettings) staysWithinBuffer(max int) bool {
 	const settingSize = 6 // uint16 + uint32
 	return frameHeaderLen+settingSize*len(s) <= max

@@ -63,6 +63,7 @@ type FrameWriteRequest struct {
 // StreamID returns the id of the stream this frame will be written to.
 // 0 is used for non-stream frames such as PING and SETTINGS.
 func (wr FrameWriteRequest) StreamID() uint32 {
+    // 是错误的stream
 	if wr.stream == nil {
 		if se, ok := wr.write.(StreamError); ok {
 			// (*serverConn).resetStream doesn't set

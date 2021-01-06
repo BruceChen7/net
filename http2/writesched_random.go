@@ -16,6 +16,7 @@ func NewRandomWriteScheduler() WriteScheduler {
 
 type randomWriteScheduler struct {
 	// zero are frames not associated with a specific stream.
+    // 对应曾哥哥连接的
 	zero writeQueue
 
 	// sq contains the stream-specific queues, keyed by stream ID.
@@ -46,12 +47,14 @@ func (ws *randomWriteScheduler) AdjustStream(streamID uint32, priority PriorityP
 
 func (ws *randomWriteScheduler) Push(wr FrameWriteRequest) {
 	id := wr.StreamID()
+    // 获取stream id，0表示整个连接，rfc中有些
 	if id == 0 {
 		ws.zero.push(wr)
 		return
 	}
 	q, ok := ws.sq[id]
 	if !ok {
+        // 获取一个queue
 		q = ws.queuePool.get()
 		ws.sq[id] = q
 	}
