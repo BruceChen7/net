@@ -20,6 +20,7 @@ var bufPool = sync.Pool{
 // result to w, returning the number of bytes written to w and the
 // Write call's return value. At most one Write call is made.
 func HuffmanDecode(w io.Writer, v []byte) (int, error) {
+	// 获取一个buffer
 	buf := bufPool.Get().(*bytes.Buffer)
 	buf.Reset()
 	defer bufPool.Put(buf)
@@ -48,6 +49,7 @@ var ErrInvalidHuffman = errors.New("hpack: invalid Huffman-encoded data")
 // If maxLen is greater than 0, attempts to write more to buf than
 // maxLen bytes will return ErrStringLength.
 func huffmanDecode(buf *bytes.Buffer, maxLen int, v []byte) error {
+	// 获取根节点
 	rootHuffmanNode := getRootHuffmanNode()
 	n := rootHuffmanNode
 	// cur is the bit buffer that has not been fed into n.
@@ -58,18 +60,25 @@ func huffmanDecode(buf *bytes.Buffer, maxLen int, v []byte) error {
 		cur = cur<<8 | uint(b)
 		cbits += 8
 		sbits += 8
+
 		for cbits >= 8 {
 			idx := byte(cur >> (cbits - 8))
+			// 获取子树
 			n = n.children[idx]
+			// 子树为空，那么返回编码错误
 			if n == nil {
 				return ErrInvalidHuffman
 			}
+			// 子树的孩子节点为空，找到了叶子结点
 			if n.children == nil {
 				if maxLen != 0 && buf.Len() == maxLen {
+					// 长度不够了
 					return ErrStringLength
 				}
 				buf.WriteByte(n.sym)
+				// 已经找到一个编码字符
 				cbits -= n.codeLen
+				// 又开始从根节点来遍历
 				n = rootHuffmanNode
 				sbits = cbits
 			} else {
@@ -77,6 +86,7 @@ func huffmanDecode(buf *bytes.Buffer, maxLen int, v []byte) error {
 			}
 		}
 	}
+	// 还有剩下的bits
 	for cbits > 0 {
 		n = n.children[byte(cur<<(8-cbits))]
 		if n == nil {
@@ -115,6 +125,7 @@ type node struct {
 	_ incomparable
 
 	// children is non-nil for internal nodes
+	// 每个字节点都有256个分支
 	children *[256]*node
 
 	// The following are only valid if children is nil:
@@ -137,28 +148,38 @@ func getRootHuffmanNode() *node {
 }
 
 func buildRootHuffmanNode() {
+	// 哈夫曼编码表不等于256，直接返回出错
 	if len(huffmanCodes) != 256 {
 		panic("unexpected size")
 	}
+	// 建立一个分支
 	lazyRootHuffmanNode = newInternalNode()
+	// 初始化码表
 	for i, code := range huffmanCodes {
 		addDecoderNode(byte(i), code, huffmanCodeLen[i])
 	}
 }
 
+// 按照8位分段存储
 func addDecoderNode(sym byte, code uint32, codeLen uint8) {
 	cur := lazyRootHuffmanNode
+	// 大于8位
 	for codeLen > 8 {
 		codeLen -= 8
+		// 选取高8位
 		i := uint8(code >> codeLen)
 		if cur.children[i] == nil {
 			cur.children[i] = newInternalNode()
 		}
 		cur = cur.children[i]
 	}
+	// 对应编码|11111111|11000| 不足的地方是11000
+	// 这里对应前缀编码11000|000 到11000111 都采用一个编码
+	// 剩余的位数不足8
 	shift := 8 - codeLen
 	start, end := int(uint8(code<<shift)), int(1<<shift)
 	for i := start; i < start+end; i++ {
+		// 最后的叶子结点存储符号
 		cur.children[i] = &node{sym: sym, codeLen: codeLen}
 	}
 }
@@ -189,7 +210,9 @@ func AppendHuffmanString(dst []byte, s string) []byte {
 
 // HuffmanEncodeLength returns the number of bytes required to encode
 // s in Huffman codes. The result is round up to byte boundary.
+// 返回采用哈夫曼编码所需的字节数
 func HuffmanEncodeLength(s string) uint64 {
+	// 初始化uint64这种
 	n := uint64(0)
 	for i := 0; i < len(s); i++ {
 		n += uint64(huffmanCodeLen[s[i]])
@@ -202,13 +225,16 @@ func HuffmanEncodeLength(s string) uint64 {
 // element. The appending is not byte aligned and the remaining bits
 // in the last element of dst is given in rembits.
 func appendByteToHuffmanCode(dst []byte, rembits uint8, c byte) ([]byte, uint8) {
+	// 获取该字符的编码
 	code := huffmanCodes[c]
+	// 对应编码的长度
 	nbits := huffmanCodeLen[c]
 
 	for {
 		if rembits > nbits {
 			t := uint8(code << (rembits - nbits))
 			dst[len(dst)-1] |= t
+			// 减去编码的bits数
 			rembits -= nbits
 			break
 		}

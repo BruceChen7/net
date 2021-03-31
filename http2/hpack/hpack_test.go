@@ -405,6 +405,7 @@ func TestHuffmanDecodeExcessPadding(t *testing.T) {
 	}
 }
 
+// 解码相依的编码
 func TestHuffmanDecodeEOS(t *testing.T) {
 	in := []byte{0xff, 0xff, 0xff, 0xff, 0xfc} // {EOS, "?"}
 	var buf bytes.Buffer

@@ -44,20 +44,26 @@ type pairNameValue struct {
 }
 
 func (t *headerFieldTable) init() {
+	// 创建两个map
 	t.byName = make(map[string]uint64)
 	t.byNameValue = make(map[pairNameValue]uint64)
 }
 
 // len reports the number of entries in the table.
 func (t *headerFieldTable) len() int {
+	// 整个entries的数目
 	return len(t.ents)
 }
 
 // addEntry adds a new entry.
 func (t *headerFieldTable) addEntry(f HeaderField) {
+	// 获取下一个id
 	id := uint64(t.len()) + t.evictCount + 1
+	// 映射name到id
 	t.byName[f.Name] = id
+	// 映射name-value到id
 	t.byNameValue[pairNameValue{f.Name, f.Value}] = id
+	// 整个entriesappend
 	t.ents = append(t.ents, f)
 }
 
@@ -196,11 +202,16 @@ func newStaticTable() *headerFieldTable {
 	t := &headerFieldTable{}
 	t.init()
 	for _, e := range staticTableEntries[:] {
+		// 添加静态表
 		t.addEntry(e)
 	}
 	return t
 }
 
+// 哈夫曼表
+// 当使用霍夫曼编码对字符串字面进行编码时，使用以下霍夫曼代码
+// 此霍夫曼代码是从大量 HTTP header 样本获得的统计信息中生成的。这是规范的霍夫曼代码
+// 这里面的索引比如47，是ascii码值/，对应0x18的霍夫曼编码，采用16进制
 var huffmanCodes = [256]uint32{
 	0x1ff8,
 	0x7fffd8,
@@ -460,6 +471,7 @@ var huffmanCodes = [256]uint32{
 	0x3ffffee,
 }
 
+// huffman编码的有效位数
 var huffmanCodeLen = [256]uint8{
 	13, 23, 28, 28, 28, 28, 28, 28, 28, 24, 30, 28, 28, 30, 28, 28,
 	28, 28, 28, 28, 28, 28, 30, 28, 28, 28, 28, 28, 28, 28, 28, 28,

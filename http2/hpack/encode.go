@@ -90,10 +90,12 @@ func (e *Encoder) WriteField(f HeaderField) error {
 // becomes false.
 func (e *Encoder) searchTable(f HeaderField) (i uint64, nameValueMatch bool) {
 	i, nameValueMatch = staticTable.search(f)
+	// 名字和值都匹配，那么直接返回该index
 	if nameValueMatch {
 		return i, true
 	}
 
+	// 名字和值不匹配
 	j, nameValueMatch := e.dynTab.table.search(f)
 	if nameValueMatch || (i == 0 && j != 0) {
 		return j + uint64(staticTable.len()), nameValueMatch
