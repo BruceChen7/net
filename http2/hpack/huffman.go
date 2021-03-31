@@ -15,6 +15,7 @@ var bufPool = sync.Pool{
 	New: func() interface{} { return new(bytes.Buffer) },
 }
 
+// 使用霍夫曼解码
 // HuffmanDecode decodes the string in v and writes the expanded
 // result to w, returning the number of bytes written to w and the
 // Write call's return value. At most one Write call is made.

@@ -105,6 +105,7 @@ func NewDecoder(maxDynamicTableSize uint32, emitFunc func(f HeaderField)) *Decod
 		emitEnabled: true,
 		firstField:  true,
 	}
+	// 动态表
 	d.dynTab.table.init()
 	d.dynTab.allowedMaxSize = maxDynamicTableSize
 	d.dynTab.setMaxSize(maxDynamicTableSize)
@@ -157,6 +158,7 @@ func (d *Decoder) SetAllowedMaxDynamicTableSize(v uint32) {
 	d.dynTab.allowedMaxSize = v
 }
 
+// 头的动态表
 type dynamicTable struct {
 	// http://http2.github.io/http2-spec/compression.html#rfc.section.2.3.2
 	table          headerFieldTable

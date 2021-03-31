@@ -31,6 +31,7 @@ type headerFieldTable struct {
 
 	// byName maps a HeaderField name to the unique id of the newest entry with
 	// the same name. See above for a definition of "unique id".
+	// 将header名字映射成id
 	byName map[string]uint64
 
 	// byNameValue maps a HeaderField name/value pair to the unique id of the newest

@@ -192,7 +192,7 @@ func (s *serverInternalState) unregisterConn(sc *serverConn) {
 		return // if the Server was used without calling ConfigureServer
 	}
 	s.mu.Lock()
-    // 从map中删除
+        // 从map中删除
 	delete(s.activeConns, sc)
 	s.mu.Unlock()
 }
@@ -203,6 +203,7 @@ func (s *serverInternalState) startGracefulShutdown() {
 	}
 	s.mu.Lock()
 	for sc := range s.activeConns {
+		// 每个链接的关闭
 		sc.startGracefulShutdown()
 	}
 	s.mu.Unlock()
@@ -364,19 +365,20 @@ func (o *ServeConnOpts) handler() http.Handler {
 // The opts parameter is optional. If nil, default values are used.
 func (s *Server) ServeConn(c net.Conn, opts *ServeConnOpts) {
 	baseCtx, cancel := serverConnBaseContext(c, opts)
+	// 退出该goroutine取消
 	defer cancel()
 
-    // server connection
+        // server connection
 	sc := &serverConn{
 		srv:                         s,
 		hs:                          opts.baseConfig(),
 		conn:                        c,
 		baseCtx:                     baseCtx,
-        // 设置远端地址信息
+		// 设置远端地址信息
 		remoteAddrStr:               c.RemoteAddr().String(),
 		bw:                          newBufferedWriter(c),
 		handler:                     opts.handler(),
-        // 该连接对应的stream统计
+		// 该连接对应的streams
 		streams:                     make(map[uint32]*stream),
 		readFrameCh:                 make(chan readFrameResult),
 		wantWriteFrameCh:            make(chan FrameWriteRequest, 8),
@@ -389,12 +391,15 @@ func (s *Server) ServeConn(c net.Conn, opts *ServeConnOpts) {
 		initialStreamSendWindowSize: initialWindowSize,
 		maxFrameSize:                initialMaxFrameSize,
 		headerTableSize:             initialHeaderTableSize,
+		// 执行serverConn的主线程
 		serveG:                      newGoroutineLock(),
+		// 后台可以主动推数据
 		pushEnabled:                 true,
 	}
 
-    // 活跃connection统计
+	// 活跃connection统计
 	s.state.registerConn(sc)
+	// 退出时，删除该链接
 	defer s.state.unregisterConn(sc)
 
 	// The net/http package sets the write deadline from the
@@ -409,28 +414,30 @@ func (s *Server) ServeConn(c net.Conn, opts *ServeConnOpts) {
 	if s.NewWriteScheduler != nil {
 		sc.writeSched = s.NewWriteScheduler()
 	} else {
-        // 设置默认的调度器
+		// 设置默认的调度器
 		sc.writeSched = NewRandomWriteScheduler()
 	}
 
 	// These start at the RFC-specified defaults. If there is a higher
 	// configured value for inflow, that will be updated when we send a
 	// WINDOW_UPDATE shortly after sending SETTINGS.
-    // 写流初始窗口
+	// 写流初始窗口
 	sc.flow.add(initialWindowSize)
-    // 读流
+        // 读流
 	sc.inflow.add(initialWindowSize)
-    // 创建解码器
+        // 创建解码器
 	sc.hpackEncoder = hpack.NewEncoder(&sc.headerWriteBuf)
 
-    // 初始化frame
+        // 初始化frame
 	fr := NewFramer(sc.bw, c)
+	// 创建一个解码器
 	fr.ReadMetaHeaders = hpack.NewDecoder(initialHeaderTableSize, nil)
+	// 设置为16MB
 	fr.MaxHeaderListSize = sc.maxHeaderListSize()
 	fr.SetMaxReadFrameSize(s.maxReadFrameSize())
 	sc.framer = fr
 
-    // 实现了tls协议
+        // 实现了tls协议
 	if tc, ok := c.(connectionStater); ok {
 		sc.tlsState = new(tls.ConnectionState)
 		*sc.tlsState = tc.ConnectionState()
@@ -477,11 +484,11 @@ func (s *Server) ServeConn(c net.Conn, opts *ServeConnOpts) {
 		}
 	}
 
-    // 这里如果有hook，那么执行hook
+        // 这里如果有hook，那么执行hook
 	if hook := testHookGetServerConn; hook != nil {
 		hook(sc)
 	}
-    // 开始运行http2 Server
+        // 开始运行http2 Server
 	sc.serve()
 }
 
@@ -516,7 +523,7 @@ type serverConn struct {
 	baseCtx          context.Context
 	framer           *Framer
 	doneServing      chan struct{}          // closed when serverConn.serve ends
-    // unbuffered channel
+        // unbuffered channel
 	readFrameCh      chan readFrameResult   // written by serverConn.readFrames
 	wantWriteFrameCh chan FrameWriteRequest // from handlers -> serve
 	wroteFrameCh     chan frameWriteResult  // from writeFrameAsync -> serve, tickles more frame writes
@@ -540,6 +547,7 @@ type serverConn struct {
 	curClientStreams            uint32 // number of open streams initiated by the client
 	curPushedStreams            uint32 // number of open streams initiated by server push
 	maxClientStreamID           uint32 // max ever seen from client (odd), or 0 if there have been no client requests
+	// 最后一个push的偶数id
 	maxPushPromiseID            uint32 // ID of the last push promise (even), or 0 if there have been no pushes
 	streams                     map[uint32]*stream
 	initialStreamSendWindowSize int32
@@ -591,9 +599,9 @@ func (sc *serverConn) curOpenStreams() uint32 {
 // responseWriter's state field.
 type stream struct {
 	// immutable:
-    // 所属的connection
+	// 所属的connection
 	sc        *serverConn
-    // stream_id
+        // stream_id
 	id        uint32
 	body      *pipe       // non-nil if expecting DATA frames
 	cw        closeWaiter // closed wait stream transitions to closed state
@@ -622,9 +630,11 @@ func (sc *serverConn) HeaderEncoder() (*hpack.Encoder, *bytes.Buffer) {
 	return sc.hpackEncoder, &sc.headerWriteBuf
 }
 
+// 找到对应流id所处的状态
 func (sc *serverConn) state(streamID uint32) (streamState, *stream) {
 	sc.serveG.check()
 	// http://tools.ietf.org/html/rfc7540#section-5.1
+	// 找到了，直接返回state
 	if st, ok := sc.streams[streamID]; ok {
 		return st.state, st
 	}
@@ -634,7 +644,7 @@ func (sc *serverConn) state(streamID uint32) (streamState, *stream) {
 	// a client sends a HEADERS frame on stream 7 without ever sending a
 	// frame on stream 5, then stream 5 transitions to the "closed"
 	// state when the first frame for stream 7 is sent or received."
-	if streamID%2 == 1 {
+	if streamID%2 == 1 {  // stream id 是奇数
 		if streamID <= sc.maxClientStreamID {
 			return stateClosed, nil
 		}
@@ -826,45 +836,47 @@ func (sc *serverConn) notePanic() {
 }
 
 func (sc *serverConn) serve() {
-    // 检查创建ServerConn和运行serve方法的是否在一个goroutine中运行
+        // 检查创建ServerConn和运行serve方法的是否在一个goroutine中运行
 	sc.serveG.check()
 	defer sc.notePanic()
 	defer sc.conn.Close()
 	defer sc.closeAllStreamsOnConnClose()
 	defer sc.stopShutdownTimer()
+	// 用来通知其他携程退出
 	defer close(sc.doneServing) // unblocks handlers trying to send
 
 	if VerboseLogs {
-        // 设置日志
+                // 设置日志
 		sc.vlogf("http2: server connection from %v on %p", sc.conn.RemoteAddr(), sc.hs)
 	}
 
-    // 写入一个frame
-    // 设置connectiond对应的选项
+        // 写入一个frame
+        // 设置connectiond对应的选项
 	sc.writeFrame(FrameWriteRequest{
 		write: writeSettings{
-            // 对应的是id和对应的值
+		        // 对应的是id和对应的值
 			{SettingMaxFrameSize, sc.srv.maxReadFrameSize()},
 			{SettingMaxConcurrentStreams, sc.advMaxStreams},
 			{SettingMaxHeaderListSize, sc.maxHeaderListSize()},
 			{SettingInitialWindowSize, uint32(sc.srv.initialStreamRecvWindowSize())},
 		},
 	})
-    // setting frame sent without ack
+
+        // setting frame sent without ack
 	sc.unackedSettings++
 
 	// Each connection starts with intialWindowSize inflow tokens.
 	// If a higher value is configured, we add more tokens.
 	if diff := sc.srv.initialConnRecvWindowSize() - initialWindowSize; diff > 0 {
-        // 更新窗口大小
+		// 更新窗口大小
 		sc.sendWindowUpdate(nil, int(diff))
 	}
 
-    // 读readPrefeace
+        // 读readPrefeace
 	if err := sc.readPreface(); err != nil {
 		sc.condlogf(err, "http2: server: error reading preface from client %v: %v", sc.conn.RemoteAddr(), err)
-        // 读取preface错误, 直接返回
-        // 直接返回
+		// 读取preface错误, 直接返回
+		// 直接返回
 		return
 	}
 	// Now that we've got the preface, get us out of the
@@ -875,7 +887,7 @@ func (sc *serverConn) serve() {
 	sc.setConnState(http.StateIdle)
 
 	if sc.srv.IdleTimeout != 0 {
-        // 如果最多等待超时时间，那么设置任务
+		// 如果有最多等待超时时间，那么设置任务
 		sc.idleTimer = time.AfterFunc(sc.srv.IdleTimeout, sc.onIdleTimer)
 		defer sc.idleTimer.Stop()
 	}
@@ -887,23 +899,23 @@ func (sc *serverConn) serve() {
 
 	loopNum := 0
 	for {
-        // 是一个死循环
+		// 是一个死循环
 		loopNum++
 		select {
-        // 各个从写channel中读到了数据
+		// 各个从写channel中读到了数据
 		case wr := <-sc.wantWriteFrameCh:
-            // 如果是Error,那么首先reset该Connection
+			// 如果是Error,那么首先reset该Connection
 			if se, ok := wr.write.(StreamError); ok {
 				sc.resetStream(se)
 				break
 			}
-            // 然后直接写
+		        // 然后直接写
 			sc.writeFrame(wr)
 		case res := <-sc.wroteFrameCh:
-            // 写完了上个一个frame, 处理写完后的逻辑
+		        // 写完了上个一个frame, 处理写完后的逻辑
 			sc.wroteFrame(res)
 		case res := <-sc.readFrameCh:
-            // 获取从客户端读取的一帧的结果
+                        // 获取从客户端读取的一帧的结果
 			if !sc.processFrameFromReader(res) {
 				return
 			}
@@ -912,9 +924,9 @@ func (sc *serverConn) serve() {
 				settingsTimer.Stop()
 				settingsTimer = nil
 			}
-        // 上层handler的响应发送过来了
+                // 上层handler的响应发送过来了
 		case m := <-sc.bodyReadCh:
-            // 读取完毕后，告知对方自己的大小
+                        // 读取完毕后，告知对方自己的大小
 			sc.noteBodyRead(m.st, m.n)
 		case msg := <-sc.serveMsgCh: // 如果是server message, 需要发送
 			switch v := msg.(type) {
@@ -922,7 +934,7 @@ func (sc *serverConn) serve() {
 				v(loopNum) // for testing
 			case *serverMessage:
 				switch v {
-                // 打印对应的channel
+                                // 打印对应的channel
 				case settingsTimerMsg:
 					sc.logf("timeout waiting for SETTINGS frames from %v", sc.conn.RemoteAddr())
 					return
@@ -1105,6 +1117,7 @@ func (sc *serverConn) writeFrameFromHandler(wr FrameWriteRequest) error {
 //
 // If you're not on the serve goroutine, use writeFrameFromHandler instead.
 func (sc *serverConn) writeFrame(wr FrameWriteRequest) {
+	// 确定是在同一个goroutine 上写frame
 	sc.serveG.check()
 
 	// If true, wr will not be written and wr.done will not be signaled.
@@ -1128,8 +1141,11 @@ func (sc *serverConn) writeFrame(wr FrameWriteRequest) {
 	// state for those streams (except for the queued RST_STREAM frame). This
 	// may result in duplicate RST_STREAMs in some cases, but the client should
 	// ignore those.
+	// 存在strem id
 	if wr.StreamID() != 0 {
+		// 是reset帧
 		_, isReset := wr.write.(StreamError)
+		// 非reset，并且该流已经关闭，那么这次哦讲不在写
 		if state, _ := sc.state(wr.StreamID()); state == stateClosed && !isReset {
 			ignoreWrite = true
 		}
@@ -1138,11 +1154,12 @@ func (sc *serverConn) writeFrame(wr FrameWriteRequest) {
 	// Don't send a 100-continue response if we've already sent headers.
 	// See golang.org/issue/14030.
 	switch wr.write.(type) {
-    // 如果是写header头
+	// 如果是写header头
 	case *writeResHeaders:
 		wr.stream.wroteHeaders = true
-    // 如果是写100的头
+        // 如果是写100的头
 	case write100ContinueHeadersFrame:
+		// 之前已经写了headers
 		if wr.stream.wroteHeaders {
 			// We do not need to notify wr.done because this frame is
 			// never written with wr.done != nil.
@@ -1153,21 +1170,23 @@ func (sc *serverConn) writeFrame(wr FrameWriteRequest) {
 		}
 	}
 
+	// 在本次不忽略写的情况下，那么放到请求队列中
 	if !ignoreWrite {
-        // 是否是控制帧
-        // 如果是控制帧，增加入队数
+                // 是否是控制帧
+                // 如果是控制帧，增加入队数
 		if wr.isControl() {
 			sc.queuedControlFrames++
 			// For extra safety, detect wraparounds, which should not happen,
 			// and pull the plug.
+			// 溢出了，那么直接close掉
 			if sc.queuedControlFrames < 0 {
 				sc.conn.Close()
 			}
 		}
-        // 写到请求队列
+		// push 到请求队列中
 		sc.writeSched.Push(wr)
 	}
-    // 开始异步写
+        // 开始异步写
 	sc.scheduleFrameWrite()
 }
 
@@ -1181,10 +1200,12 @@ func (sc *serverConn) startFrameWrite(wr FrameWriteRequest) {
 	}
 
 	st := wr.stream
-    // 如果是流frame
+        // 如果是流存在
 	if st != nil {
 		switch st.state {
+		// 本地半关闭
 		case stateHalfClosedLocal:
+			// 校验发送到的流类型
 			switch wr.write.(type) {
 			case StreamError, handlerPanicRST, writeWindowUpdate:
 				// RFC 7540 Section 5.1 allows sending RST_STREAM, PRIORITY, and WINDOW_UPDATE
@@ -1208,17 +1229,17 @@ func (sc *serverConn) startFrameWrite(wr FrameWriteRequest) {
 
 	sc.writingFrame = true
 	sc.needsFrameFlush = true
-    // 如果buffer中有有多余
+	// 如果buffer中有有多余
 	if wr.write.staysWithinBuffer(sc.bw.Available()) {
-        // 不需要真正的发送
+		// 不需要真正的发送
 		sc.writingFrameAsync = false
-        // 执行编码和序列化
+		// 执行编码和序列化
 		err := wr.write.writeFrame(sc)
-        // 直接写
+		// 直接写
 		sc.wroteFrame(frameWriteResult{wr: wr, err: err})
 	} else {
 		sc.writingFrameAsync = true
-        // 写完了，再通知server gorotinue，下次写
+		// 写完了，再通知server gorotinue，下次写
 		go sc.writeFrameAsync(wr)
 	}
 }
@@ -1301,18 +1322,19 @@ func (sc *serverConn) wroteFrame(res frameWriteResult) {
 // If a frame isn't being written and there's nothing else to send, we
 // flush the write buffer.
 func (sc *serverConn) scheduleFrameWrite() {
-    // 一定是在server goroutine
+        // 一定是在server goroutine
 	sc.serveG.check()
 	if sc.writingFrame || sc.inFrameScheduleLoop {
 		return
 	}
-    // 在调度循环中
+        // 在调度循环中
 	sc.inFrameScheduleLoop = true
-    // 如果处于同步模式，就是没有真正进行网络IO
+       // 如果处于同步模式，就是没有真正进行网络IO
 	for !sc.writingFrameAsync {
-        // 对于需要发送GOAway的frame
+		// 对于需要发送GoAway的frame
 		if sc.needToSendGoAway {
 			sc.needToSendGoAway = false
+			// 开始
 			sc.startFrameWrite(FrameWriteRequest{
 				write: &writeGoAway{
 					maxStreamID: sc.maxClientStreamID,
@@ -1321,14 +1343,14 @@ func (sc *serverConn) scheduleFrameWrite() {
 			})
 			continue
 		}
-        // 设置setting frame 的ack
+		// 设置setting frame 的ack
 		if sc.needToSendSettingsAck {
 			sc.needToSendSettingsAck = false
 			sc.startFrameWrite(FrameWriteRequest{write: writeSettingsAck{}})
 			continue
 		}
 		if !sc.inGoAway || sc.goAwayCode == ErrCodeNo {
-            // 获取一个写request
+			// 获取一个写request
 			if wr, ok := sc.writeSched.Pop(); ok {
 				if wr.isControl() {
 					sc.queuedControlFrames--
@@ -1337,7 +1359,7 @@ func (sc *serverConn) scheduleFrameWrite() {
 				continue
 			}
 		}
-        // 需要进行IO操作
+		// 需要进行IO操作
 		if sc.needsFrameFlush {
 			sc.startFrameWrite(FrameWriteRequest{write: flushFrameWriter{}})
 			sc.needsFrameFlush = false // after startFrameWrite, since it sets this true
@@ -1356,6 +1378,7 @@ func (sc *serverConn) scheduleFrameWrite() {
 // startGracefulShutdown returns immediately; it does not wait until
 // the connection has shut down.
 func (sc *serverConn) startGracefulShutdown() {
+	// 不在主goroutine运行
 	sc.serveG.checkNotOn() // NOT
 	sc.shutdownOnce.Do(func() { sc.sendServeMsg(gracefulShutdownMsg) })
 }
@@ -2340,7 +2363,7 @@ func (sc *serverConn) sendWindowUpdate(st *stream, n int) {
 		sc.sendWindowUpdate32(st, maxUint31)
 		n -= maxUint31
 	}
-    // 发送窗口更新
+	// 发送窗口更新
 	sc.sendWindowUpdate32(st, int32(n))
 }
 
@@ -2358,16 +2381,16 @@ func (sc *serverConn) sendWindowUpdate32(st *stream, n int32) {
 		streamID = st.id
 	}
 	sc.writeFrame(FrameWriteRequest{
-        // 窗口大小
+                // 窗口大小
 		write:  writeWindowUpdate{streamID: streamID, n: uint32(n)},
 		stream: st,
 	})
 	var ok bool
 	if st == nil {
-        // 可以接收的connection的大小
+                // 可以接收的connection的大小
 		ok = sc.inflow.add(n)
 	} else {
-        // 可以接收的数据大小更新
+                // 可以接收的数据大小更新
 		ok = st.inflow.add(n)
 	}
 	if !ok {
@@ -2410,7 +2433,7 @@ func (b *requestBody) Read(p []byte) (n int, err error) {
 	if b.conn == nil && inTests {
 		return
 	}
-    // 通知server goroutine已经读完去成功了
+        // 通知server goroutine已经读完去成功了
 	b.conn.noteBodyReadFromHandler(b.stream, n, err)
 	return
 }

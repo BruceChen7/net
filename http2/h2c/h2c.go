@@ -34,8 +34,9 @@ var (
 
 func init() {
 	e := os.Getenv("GODEBUG")
+	// 环境变量包含
 	if strings.Contains(e, "http2debug=1") || strings.Contains(e, "http2debug=2") {
-        // 打印日志
+		// 打印日志
 		http2VerboseLogs = true
 	}
 }
@@ -89,15 +90,16 @@ func (s h2cHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Handle Upgrade to h2c (RFC 7540 Section 3.2)
+	// 成功的进行upgrade，那么开始处理HTTP 2的请求
 	if conn, err := h2cUpgrade(w, r); err == nil {
 		defer conn.Close()
 
-        // 开始真正的处理HTT2P请求
+		// 开始真正的处理HTTP2请求
 		s.s.ServeConn(conn, &http2.ServeConnOpts{Handler: s.Handler})
 		return
 	}
 
-    // 交给http1.1协议来处理
+	// 交给http1.1协议来处理
 	s.Handler.ServeHTTP(w, r)
 	return
 }
@@ -390,7 +392,7 @@ func isH2CUpgrade(h http.Header) bool {
 // getH2Settings returns the []http2.Setting that are encoded in the
 // HTTP2-Settings header.
 func getH2Settings(h http.Header) ([]http2.Setting, error) {
-    // 获取对应key的值
+        // 获取对应key的值
 	vals, ok := h[textproto.CanonicalMIMEHeaderKey("HTTP2-Settings")]
 	if !ok {
 		return nil, errors.New("missing HTTP2-Settings header")
@@ -398,7 +400,7 @@ func getH2Settings(h http.Header) ([]http2.Setting, error) {
 	if len(vals) != 1 {
 		return nil, fmt.Errorf("expected 1 HTTP2-Settings. Got: %v", vals)
 	}
-    // 必须只能有一个值，就是token的值
+        // 必须只能有一个值，就是token的值
 	settings, err := decodeSettings(vals[0])
 	if err != nil {
 		return nil, fmt.Errorf("Invalid HTTP2-Settings: %q", vals[0])
@@ -409,7 +411,7 @@ func getH2Settings(h http.Header) ([]http2.Setting, error) {
 // decodeSettings decodes the base64url header value of the HTTP2-Settings
 // header. RFC 7540 Section 3.2.1.
 func decodeSettings(headerVal string) ([]http2.Setting, error) {
-    // base64反序列化后，忽略=
+        // base64反序列化后，忽略=
 	b, err := base64.RawURLEncoding.DecodeString(headerVal)
 	if err != nil {
 		return nil, err

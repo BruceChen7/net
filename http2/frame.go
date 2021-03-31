@@ -266,6 +266,7 @@ type Frame interface {
 
 // A Framer reads and writes Frames.
 type Framer struct {
+	// 读源
 	r         io.Reader
 	lastFrame Frame
 	errDetail error
@@ -427,6 +428,7 @@ func (fc *frameCache) getDataFrame() *DataFrame {
 
 // NewFramer returns a Framer that writes frames to w and reads them from r.
 func NewFramer(w io.Writer, r io.Reader) *Framer {
+	// 返回一个frame
 	fr := &Framer{
 		w:                 w,
 		r:                 r,
