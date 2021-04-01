@@ -102,10 +102,12 @@ func TestHeaderFieldTable_LookupMapEviction(t *testing.T) {
 	// evict all pairs
 	table.evictOldest(table.len())
 
+	// 本身表为空
 	if l := table.len(); l > 0 {
 		t.Errorf("table.len() = %d, want 0", l)
 	}
 
+	// 相应的索引表也为空
 	if l := len(table.byName); l > 0 {
 		t.Errorf("len(table.byName) = %d, want 0", l)
 	}
@@ -181,10 +183,13 @@ func TestStaticTable(t *testing.T) {
           | 61    | www-authenticate            |               |
           +-------+-----------------------------+---------------+
 `
+	// 从数据源中新建scanner
 	bs := bufio.NewScanner(strings.NewReader(fromSpec))
+	// 正则表达式
 	re := regexp.MustCompile(`\| (\d+)\s+\| (\S+)\s*\| (\S(.*\S)?)?\s+\|`)
 	for bs.Scan() {
 		l := bs.Text()
+		// 上下边界
 		if !strings.Contains(l, "|") {
 			continue
 		}
@@ -208,6 +213,7 @@ func TestStaticTable(t *testing.T) {
 			t.Errorf("header index %d value = %q; want %q", i, got, want)
 		}
 	}
+	// 表格格式不正确
 	if err := bs.Err(); err != nil {
 		t.Error(err)
 	}

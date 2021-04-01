@@ -36,6 +36,7 @@ type headerFieldTable struct {
 
 	// byNameValue maps a HeaderField name/value pair to the unique id of the newest
 	// entry with the same name and value. See above for a definition of "unique id".
+	// 将header-value映射成id
 	byNameValue map[pairNameValue]uint64
 }
 
@@ -73,20 +74,26 @@ func (t *headerFieldTable) evictOldest(n int) {
 		panic(fmt.Sprintf("evictOldest(%v) on table with %v entries", n, t.len()))
 	}
 	for k := 0; k < n; k++ {
+		// 找到这个条目
 		f := t.ents[k]
 		id := t.evictCount + uint64(k) + 1
 		if t.byName[f.Name] == id {
+			// 删除索引
 			delete(t.byName, f.Name)
 		}
 		if p := (pairNameValue{f.Name, f.Value}); t.byNameValue[p] == id {
 			delete(t.byNameValue, p)
 		}
 	}
+	// 将剩下的拷贝
 	copy(t.ents, t.ents[n:])
+	// 设置成空
 	for k := t.len() - n; k < t.len(); k++ {
 		t.ents[k] = HeaderField{} // so strings can be garbage collected
 	}
+	// 重新设置成
 	t.ents = t.ents[:t.len()-n]
+	// 溢出的处理方式
 	if t.evictCount+uint64(n) < t.evictCount {
 		panic("evictCount overflow")
 	}
