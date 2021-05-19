@@ -248,6 +248,7 @@ type bufferedWriter struct {
 }
 
 func newBufferedWriter(w io.Writer) *bufferedWriter {
+	// 初始化buffer writer
 	return &bufferedWriter{w: w}
 }
 

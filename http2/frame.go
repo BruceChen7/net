@@ -233,16 +233,27 @@ func ReadFrameHeader(r io.Reader) (FrameHeader, error) {
 	return readFrameHeader(*bufp, r)
 }
 
+
+// 读取frameHeader
+// +-----------------------------------------------+
+// |                 Length (24)                   |
+// +---------------+---------------+---------------+
+// |   Type (8)    |   Flags (8)   |
+// +-+-------------+---------------+-------------------------------+
+// |R|                 Stream Identifier (31)                      |
+// +=+=============================================================+
+// |                   Frame Payload (0...)                      ...
+// +---------------------------------------------------------------+
 func readFrameHeader(buf []byte, r io.Reader) (FrameHeader, error) {
-    // 执行frame长度
+	// 读取frame长度，前9个字节
 	_, err := io.ReadFull(r, buf[:frameHeaderLen])
 	if err != nil {
 		return FrameHeader{}, err
 	}
 	return FrameHeader{
-        // frame 长度
-		Length:   (uint32(buf[0])<<16 | uint32(buf[1])<<8 | uint32(buf[2])),
-        // frame 类型
+		// frame 长度
+		Length: (uint32(buf[0])<<16 | uint32(buf[1])<<8 | uint32(buf[2])),
+		// frame 类型
 		Type:     FrameType(buf[3]),
 		Flags:    Flags(buf[4]),
 		StreamID: binary.BigEndian.Uint32(buf[5:]) & (1<<31 - 1),
@@ -276,8 +287,8 @@ type Framer struct {
 	lastHeaderStream uint32
 
 	maxReadSize uint32
-    // frame header
-	headerBuf   [frameHeaderLen]byte
+	// frame header
+	headerBuf [frameHeaderLen]byte
 
 	// TODO: let getReadBuf be configurable, and use a less memory-pinning
 	// allocator in server.go to minimize memory pinned for many idle conns.
@@ -342,15 +353,15 @@ func (fr *Framer) maxHeaderListSize() uint32 {
 func (f *Framer) startWrite(ftype FrameType, flags Flags, streamID uint32) {
 	// Write the FrameHeader.
 	f.wbuf = append(f.wbuf[:0],
-		0, // 3 bytes of length, filled in in endWrite
-		0,
-		0,
-		byte(ftype),
-		byte(flags),
-		byte(streamID>>24),
-		byte(streamID>>16),
-		byte(streamID>>8),
-		byte(streamID))
+	0, // 3 bytes of length, filled in in endWrite
+	0,
+	0,
+	byte(ftype),
+	byte(flags),
+	byte(streamID>>24),
+	byte(streamID>>16),
+	byte(streamID>>8),
+	byte(streamID))
 }
 
 func (f *Framer) endWrite() error {
@@ -361,9 +372,9 @@ func (f *Framer) endWrite() error {
 		return ErrFrameTooLarge
 	}
 	_ = append(f.wbuf[:0],
-		byte(length>>16),
-		byte(length>>8),
-		byte(length))
+	byte(length>>16),
+	byte(length>>8),
+	byte(length))
 	if f.logWrites {
 		f.logWrite()
 	}
@@ -438,9 +449,11 @@ func NewFramer(w io.Writer, r io.Reader) *Framer {
 		debugWriteLoggerf: log.Printf,
 	}
 	fr.getReadBuf = func(size uint32) []byte {
+		// 直接使用readbuf
 		if cap(fr.readBuf) >= int(size) {
 			return fr.readBuf[:size]
 		}
+		// 扩大
 		fr.readBuf = make([]byte, size)
 		return fr.readBuf
 	}
@@ -495,23 +508,24 @@ func (fr *Framer) ReadFrame() (Frame, error) {
 	if fr.lastFrame != nil {
 		fr.lastFrame.invalidate()
 	}
-    // 获取frame header
+	// 获取frame header
+	// fr.headerBuf[:]将数组转成slice
 	fh, err := readFrameHeader(fr.headerBuf[:], fr.r)
 	if err != nil {
 		return nil, err
 	}
-    // fheader中的长度太大
+	// fheader中的长度太大
 	if fh.Length > fr.maxReadSize {
 		return nil, ErrFrameTooLarge
 	}
-    // 获取payload body
+	// 获取payload body
 	payload := fr.getReadBuf(fh.Length)
-    // 获取payload
+	// 获取payload
 	if _, err := io.ReadFull(fr.r, payload); err != nil {
 		return nil, err
 	}
 
-    // 根据frame解析器获取frame
+	// 根据frame解析器获取frame
 	f, err := typeFrameParser(fh.Type)(fr.frameCache, fh, payload)
 	if err != nil {
 		if ce, ok := err.(connError); ok {
@@ -522,7 +536,7 @@ func (fr *Framer) ReadFrame() (Frame, error) {
 	if err := fr.checkFrameOrder(f); err != nil {
 		return nil, err
 	}
-    // 打印日志
+	// 打印日志
 	if fr.logReads {
 		fr.debugReadLoggerf("http2: Framer %p: read %v", fr, summarizeFrame(f))
 	}
@@ -545,7 +559,7 @@ func (fr *Framer) connError(code ErrCode, reason string) error {
 // next from ReadFrame. Mostly it checks whether HEADERS and
 // CONTINUATION frames are contiguous.
 func (fr *Framer) checkFrameOrder(f Frame) error {
-    // 获取最后一个frame
+	// 获取最后一个frame
 	last := fr.lastFrame
 	fr.lastFrame = f
 	if fr.AllowIllegalReads {
@@ -556,14 +570,14 @@ func (fr *Framer) checkFrameOrder(f Frame) error {
 	if fr.lastHeaderStream != 0 {
 		if fh.Type != FrameContinuation {
 			return fr.connError(ErrCodeProtocol,
-				fmt.Sprintf("got %s for stream %d; expected CONTINUATION following %s for stream %d",
-					fh.Type, fh.StreamID,
-					last.Header().Type, fr.lastHeaderStream))
+			fmt.Sprintf("got %s for stream %d; expected CONTINUATION following %s for stream %d",
+			fh.Type, fh.StreamID,
+			last.Header().Type, fr.lastHeaderStream))
 		}
 		if fh.StreamID != fr.lastHeaderStream {
 			return fr.connError(ErrCodeProtocol,
-				fmt.Sprintf("got CONTINUATION for stream %d; expected stream %d",
-					fh.StreamID, fr.lastHeaderStream))
+			fmt.Sprintf("got CONTINUATION for stream %d; expected stream %d",
+			fh.StreamID, fr.lastHeaderStream))
 		}
 	} else if fh.Type == FrameContinuation {
 		return fr.connError(ErrCodeProtocol, fmt.Sprintf("unexpected CONTINUATION for stream %d", fh.StreamID))
@@ -603,7 +617,7 @@ func (f *DataFrame) Data() []byte {
 }
 
 func parseDataFrame(fc *frameCache, fh FrameHeader, payload []byte) (Frame, error) {
-    // 如果没有stream id
+	// 如果没有stream id
 	if fh.StreamID == 0 {
 		// DATA frames MUST be associated with a stream. If a
 		// DATA frame is received whose stream identifier
@@ -612,7 +626,7 @@ func parseDataFrame(fc *frameCache, fh FrameHeader, payload []byte) (Frame, erro
 		// PROTOCOL_ERROR.
 		return nil, connError{ErrCodeProtocol, "DATA frame with stream ID 0"}
 	}
-    // 获取data frame
+	// 获取data frame
 	f := fc.getDataFrame()
 	f.FrameHeader = fh
 
@@ -631,7 +645,7 @@ func parseDataFrame(fc *frameCache, fh FrameHeader, payload []byte) (Frame, erro
 		// Filed: https://github.com/http2/http2-spec/issues/610
 		return nil, connError{ErrCodeProtocol, "pad size larger than data payload"}
 	}
-    // 填充数据
+	// 填充数据
 	f.data = payload[:len(payload)-int(padSize)]
 	return f, nil
 }
@@ -826,7 +840,7 @@ func (f *Framer) WriteSettings(settings ...Setting) error {
 		f.writeUint16(uint16(s.ID))
 		f.writeUint32(s.Val)
 	}
-    // 二进制帧写
+	// 二进制帧写
 	return f.endWrite()
 }
 
@@ -1624,7 +1638,7 @@ func summarizeFrame(f Frame) string {
 		fmt.Fprintf(&buf, " ping=%q", f.Data[:])
 	case *GoAwayFrame:
 		fmt.Fprintf(&buf, " LastStreamID=%v ErrCode=%v Debug=%q",
-			f.LastStreamID, f.ErrCode, f.debugData)
+		f.LastStreamID, f.ErrCode, f.debugData)
 	case *RSTStreamFrame:
 		fmt.Fprintf(&buf, " ErrCode=%v", f.ErrCode)
 	}
