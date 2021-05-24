@@ -528,6 +528,7 @@ func (fr *Framer) ReadFrame() (Frame, error) {
 	// 根据frame解析器获取frame
 	f, err := typeFrameParser(fh.Type)(fr.frameCache, fh, payload)
 	if err != nil {
+		// 如果是链接错误
 		if ce, ok := err.(connError); ok {
 			return nil, fr.connError(ce.Code, ce.Reason)
 		}
@@ -561,33 +562,38 @@ func (fr *Framer) connError(code ErrCode, reason string) error {
 func (fr *Framer) checkFrameOrder(f Frame) error {
 	// 获取最后一个frame
 	last := fr.lastFrame
+	// 更新最后一个frame
 	fr.lastFrame = f
+	// 直接允许非法读
 	if fr.AllowIllegalReads {
 		return nil
 	}
 
 	fh := f.Header()
 	if fr.lastHeaderStream != 0 {
+		// 不是conintuation
 		if fh.Type != FrameContinuation {
 			return fr.connError(ErrCodeProtocol,
 			fmt.Sprintf("got %s for stream %d; expected CONTINUATION following %s for stream %d",
 			fh.Type, fh.StreamID,
 			last.Header().Type, fr.lastHeaderStream))
 		}
+		// 不是上一个streamid
 		if fh.StreamID != fr.lastHeaderStream {
 			return fr.connError(ErrCodeProtocol,
 			fmt.Sprintf("got CONTINUATION for stream %d; expected stream %d",
 			fh.StreamID, fr.lastHeaderStream))
 		}
-	} else if fh.Type == FrameContinuation {
+	} else if fh.Type == FrameContinuation { // type 不对
 		return fr.connError(ErrCodeProtocol, fmt.Sprintf("unexpected CONTINUATION for stream %d", fh.StreamID))
 	}
 
 	switch fh.Type {
 	case FrameHeaders, FrameContinuation:
-		if fh.Flags.Has(FlagHeadersEndHeaders) {
+		if fh.Flags.Has(FlagHeadersEndHeaders) { // 如果是end frame
 			fr.lastHeaderStream = 0
 		} else {
+			// 设置stream
 			fr.lastHeaderStream = fh.StreamID
 		}
 	}
@@ -628,9 +634,11 @@ func parseDataFrame(fc *frameCache, fh FrameHeader, payload []byte) (Frame, erro
 	}
 	// 获取data frame
 	f := fc.getDataFrame()
+	// 设置frame header
 	f.FrameHeader = fh
 
 	var padSize byte
+	// 有pad data
 	if fh.Flags.Has(FlagDataPadded) {
 		var err error
 		payload, padSize, err = readByte(payload)
@@ -638,6 +646,7 @@ func parseDataFrame(fc *frameCache, fh FrameHeader, payload []byte) (Frame, erro
 			return nil, err
 		}
 	}
+	// pad size 过大
 	if int(padSize) > len(payload) {
 		// If the length of the padding is greater than the
 		// length of the frame payload, the recipient MUST
@@ -645,7 +654,7 @@ func parseDataFrame(fc *frameCache, fh FrameHeader, payload []byte) (Frame, erro
 		// Filed: https://github.com/http2/http2-spec/issues/610
 		return nil, connError{ErrCodeProtocol, "pad size larger than data payload"}
 	}
-	// 填充数据
+	// 填充数据，真正的data
 	f.data = payload[:len(payload)-int(padSize)]
 	return f, nil
 }
@@ -1602,6 +1611,7 @@ func (fr *Framer) readMetaFrame(hf *HeadersFrame) (*MetaHeadersFrame, error) {
 	return mh, nil
 }
 
+// 打开
 func summarizeFrame(f Frame) string {
 	var buf bytes.Buffer
 	f.Header().writeDebug(&buf)

@@ -2848,6 +2848,7 @@ var _ http.Pusher = (*responseWriter)(nil)
 func (w *responseWriter) Push(target string, opts *http.PushOptions) error {
 	st := w.rws.stream
 	sc := st.sc
+	// 必须在主goroutine上push
 	sc.serveG.checkNotOn()
 
 	// No recursive pushes: "PUSH_PROMISE frames MUST only be sent on a peer-initiated stream."
