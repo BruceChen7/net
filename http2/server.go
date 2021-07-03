@@ -1,5 +1,3 @@
-// Copyright 2014 The Go Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
 // TODO: turn off the serve goroutine when idle, so
@@ -775,6 +773,7 @@ func (sc *serverConn) readFrames() {
 		// 执行IO操作，并解析成一帧
 		f, err := sc.framer.ReadFrame()
 		select {
+		// 将结果通知给主携程
 		case sc.readFrameCh <- readFrameResult{f, err, gateDone}:
 		case <-sc.doneServing: // connection is finished
 			return
@@ -893,6 +892,7 @@ func (sc *serverConn) serve() {
 		defer sc.idleTimer.Stop()
 	}
 
+	// 每个connection启动一个携程来处理读读逻辑
 	go sc.readFrames() // closed by defer sc.conn.Close above
 
 	settingsTimer := time.AfterFunc(firstSettingsTimeout, sc.onSettingsTimer)
@@ -915,6 +915,7 @@ func (sc *serverConn) serve() {
 		case res := <-sc.wroteFrameCh:
 			// 写完了上个一个frame, 处理写完后的逻辑
 			sc.wroteFrame(res)
+		// 从上面读读读携程中获取一帧的数据
 		case res := <-sc.readFrameCh:
 			// 获取从客户端读取的一帧的结果
 			if !sc.processFrameFromReader(res) {
@@ -1435,7 +1436,7 @@ func (sc *serverConn) processFrameFromReader(res readFrameResult) bool {
 	sc.serveG.check()
 	err := res.err
 	if err != nil {
-		// freame太大
+		// frame太大
 		if err == ErrFrameTooLarge {
 			sc.goAway(ErrCodeFrameSize)
 			return true // goAway will close the loop

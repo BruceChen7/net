@@ -530,6 +530,7 @@ func (fr *Framer) ReadFrame() (Frame, error) {
 	if err != nil {
 		// 如果是链接错误
 		if ce, ok := err.(connError); ok {
+			// 返回连接错误
 			return nil, fr.connError(ce.Code, ce.Reason)
 		}
 		return nil, err
